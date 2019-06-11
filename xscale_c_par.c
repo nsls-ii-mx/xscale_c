@@ -18,17 +18,31 @@ char* awk_program = "BEGIN{ PROCINFO[\"sorted_in\"]=\"@ind_num_desc\" \n"
         "} \n"
 "/run[0-9]/{ \n"
 "        score=$7+(100-$8); \n"
-"        arr[score]=sprintf(\"%-12s|%-20d|%-20.1f|%-20.1f|%-20.1f\", $1, $5, $7, $8, score); \n"
-"} \n"
-"END{ \n"
-"    for(key in arr) { \n"
-"        print(arr[key]) \n"
-"    } \n"
+"        printf(\"%-12s|%-20d|%-20.1f|%-20.1f|%-20.1f\\n\", $1, $5, $7, $8, score) | \"sort -r -k 5\"; \n"
 "} ";
 
 
 char lines[MAX_LINES][MAX_LINE_SIZE];
 char template_lines[MAX_TEMPLATE_LINES][MAX_LINE_SIZE];
+
+int lines_used;
+
+typedef struct factoradic_digit DIGIT;
+typedef struct factoradic_number PERMUTATION;
+struct factoradic_digit {
+    int value;
+    DIGIT* next;
+    DIGIT* prev;
+};
+struct factoradic_number {
+    DIGIT* first;
+    DIGIT* last;
+};
+
+void print_help_message() {
+    printf("xscale_p runs xscale on all permutations or combinations of input data sets \n and produces a sorted table with completeness, r value,\n and number of unique reflections from each run.\n");
+    printf("Usage: xscale_p [-c | -p] XSCALE.INP\n");
+}
 int index_of(char* str) {
         for(int i=0; i < MAX_LINES; i++){
                 if(strcmp(str, lines[i]) == 0) return i;
@@ -36,9 +50,123 @@ int index_of(char* str) {
         return -1;
 }
 
+long factorial(int n) {
+    if(n<0) return -1L;
+    if(n==0 || n==1) return 1L;
+    return n*factorial(n-1);
+}
+
+//increment mod n! (preserve length of permutation)
+void increment(PERMUTATION* perm) {
+    DIGIT* current_digit = perm->last;
+    int counter = 0;
+    while(current_digit != NULL) {
+        if(current_digit->value < counter) {
+            current_digit->value++;
+            return;
+        }
+        current_digit->value = 0;
+        current_digit = current_digit->prev;
+        counter++;
+    }
+}
+
+int get_length(PERMUTATION* perm) {
+    int len = 0;
+    DIGIT* current_digit = perm->first;
+    while(current_digit != NULL) {
+        current_digit = current_digit->next;
+        len++;
+    }
+    return len;
+}
+
+PERMUTATION* init_permutation(int length) {
+    PERMUTATION* perm = (PERMUTATION*) (malloc(sizeof(PERMUTATION)));
+    for(int i=0; i<length; i++) {
+        DIGIT* current_digit = (DIGIT*) (malloc(sizeof(DIGIT)));
+        current_digit->value = 0;
+        current_digit->next = NULL;
+        if(i==0) {
+            perm->first = current_digit;
+            perm->last = current_digit;
+            current_digit->prev = NULL;
+        }
+        else {
+            perm->last->next = current_digit;
+            current_digit->prev = perm->last;
+            perm->last = current_digit;
+        }
+    }
+    return perm;
+}
+
+void free_permutation(PERMUTATION* perm) {
+    DIGIT* current_digit = perm->last->prev;
+    while(current_digit != NULL) {
+        free(current_digit->next);
+        current_digit = current_digit->prev;
+    }
+    free(perm->first);
+    free(perm);
+}
+
+void remove_number(int* arr, int len, int index) {
+    for(int i=index; i<len-1; i++) {
+        *(arr+i) = *(arr+i+1);
+    }
+}
+
+//return a permuted array, eg) [3,1,4,2,0] corresponding to permutation 31210
+int* get_permuted_array(PERMUTATION* permutation) {
+    int len = get_length(permutation);
+    int* arr = (int*) calloc(len, sizeof(int));
+    for(int i=0; i<len; i++) {
+        *(arr+i) = i;
+    }
+    int* arr_perm = (int*) calloc(len, sizeof(int));
+    DIGIT* current_digit = permutation->first;
+    int j=0;
+    while(current_digit != NULL) {
+        *(arr_perm+j) = *(arr+current_digit->value);
+        remove_number(arr, len, current_digit->value);
+        current_digit = current_digit->next;
+        j++;
+    }
+    free(arr);
+    return arr_perm;
+}
+
+void write_inp_file_p(PERMUTATION* perm) {
+    FILE* fp = fopen("XSCALE.INP", "w+");
+    int* perm_array = get_permuted_array(perm);
+    for(int i=0; i<lines_used; i++) {
+        char* temp = template_lines[i];
+        int index = index_of(temp);
+        if(index == -1) fprintf(fp, "%s\n", temp);
+        else {
+            char* inp = "INPUT_FILE=";
+            char* line = lines[*(perm_array+index)];
+            char* filename = line+11;
+            char* ft = filename;
+            while(*ft == ' ') {
+                ft++;
+            }
+            if(*ft == '/') { //absolute path
+                fprintf(fp, "%s\n", line);
+            }
+            else { //relative path
+                fprintf(fp, "%s../%s\n", inp, ft);
+            }
+        }
+    }
+    free(perm_array);
+    fclose(fp);
+}
+
 void write_inp_file(int bitstring, int length) {
         FILE* fp = fopen("XSCALE.INP", "w+");
-        for(int i=0; i< MAX_TEMPLATE_LINES; i++) {
+        for(int i=0; i<lines_used; i++) {
                 char* temp = template_lines[i];
                 int index = index_of(temp);
                 if(index == -1) fprintf(fp, "%s\n", temp);
@@ -52,10 +180,10 @@ void write_inp_file(int bitstring, int length) {
                                 while(*ft == ' ') {
                                     ft++;
                                 }
-                                if(*ft == '/') {
+                                if(*ft == '/') { //absolute path
                                     fprintf(fp, "%s\n", temp);
                                 }
-                                else {
+                                else { //relative path
                                     fprintf(fp, "%s../%s\n", inp, ft);
                                 }
                         }
@@ -63,6 +191,21 @@ void write_inp_file(int bitstring, int length) {
         }
 
         fclose(fp);
+}
+
+char* get_dir_name_p(PERMUTATION* perm) {
+    int* arr = get_permuted_array(perm);
+    int len = get_length(perm);
+    char* str = (char*) calloc(len, sizeof(char));
+    for(int i=0; i< len; i++) {
+        *(str+i) = (char) (*(arr+i) + '1');
+    }
+    free(arr);
+    char* buffer = (char*) calloc(len, sizeof(char));
+    strcpy(buffer, "run");
+    strcat(buffer, str);
+    free(str);
+    return buffer;
 }
 
 char* get_dir_name(int bitstring, int length) {
@@ -79,6 +222,21 @@ char* get_dir_name(int bitstring, int length) {
         }
         return dir_name;
 }
+
+void run_xscale_p(PERMUTATION* perm) {
+    char* dir_name = get_dir_name_p(perm);
+    mkdir(dir_name, S_IRWXU | S_IRWXG | S_IRWXO);
+    chdir(dir_name);
+    write_inp_file_p(perm);
+    int status = system("xscale");
+    if(WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "%s\n", "Error running XSCALE!");
+        exit(1);
+    }
+    free(dir_name);
+    chdir("..");
+}
+
 void run_xscale(int bitstring, int length) {
         char* dir_name = get_dir_name(bitstring, length);
         mkdir(dir_name, S_IRWXU | S_IRWXG | S_IRWXO);
@@ -99,13 +257,27 @@ int test_power_of_two(int bitstring) {
         }
         return 0;
 }
+
 int main(int argc, char* argv[]) {
 
         FILE *fp;
 
+        int p_or_c = 0;
         if(argc < 2) {
                 fprintf(stderr, "Error: no XSCALE.INP file given as argument\n");
                 exit(EXIT_FAILURE);
+        }
+        if(argc >= 2) {
+            if(strcmp("-h", argv[1]) == 0 || strcmp("--help", argv[1]) == 0) {
+                print_help_message();
+                exit(0);
+            }
+            if(strcmp("-p", argv[1]) == 0 || strcmp("--permutations", argv[1]) == 0) {
+                p_or_c = 1;
+            }
+            if(strcmp("-c", argv[1]) == 0 || strcmp("--combinations", argv[1]) == 0) {
+                p_or_c = 0;
+            }
         }
 
         char* filename = argv[argc-1];
@@ -116,7 +288,7 @@ int main(int argc, char* argv[]) {
                 char temp[MAX_LINE_SIZE];
                 int i =0;
                 while(line_counter < MAX_LINES && fgets (temp, sizeof(temp), fp) != NULL) {
-                        if(strstr(temp, "INPUT_FILE") != NULL) {
+                        if(strstr(temp, "INPUT_FILE") != NULL && (strstr(temp, "!") == NULL || strstr(temp, "!") > strstr(temp, "INPUT_FILE")) ) {
                                 strcpy(lines[line_counter], temp);
                                 lines[line_counter][strlen(lines[line_counter])-1] = 0;
                                 line_counter++;
@@ -126,18 +298,40 @@ int main(int argc, char* argv[]) {
                         i++;
                 }
                 fclose(fp);
+                lines_used = i;
 
-                int number_possibilities = 1 << line_counter;
-                for(int bitstring = 1; bitstring < number_possibilities; bitstring++) {
-                        if(test_power_of_two(bitstring) == 1) continue;
+                if(p_or_c == 1) { //permutations
+                    printf("Running permutation mode\n");
+                    printf("------------------------\n");
+                    PERMUTATION* perm = init_permutation(line_counter);
+                    for(int i=0; i< factorial(line_counter); i++) {
                         if(fork() == 0) {
-                            run_xscale(bitstring, line_counter);
+                            run_xscale_p(perm);
                             exit(0);
                         }
+                        increment(perm);
+                    }
+                    for(int i=0; i<factorial(line_counter); i++) {
+                        wait(NULL);
+                    }
+                    free(perm);
                 }
-                for(int bitstring = 1; bitstring < number_possibilities; bitstring++) {
-                    if(test_power_of_two(bitstring) == 1) continue;
-                    wait(NULL);
+
+                else if (p_or_c == 0) { //combinations
+                    printf("Running combination mode\n");
+                    printf("------------------------\n");
+                    int number_possibilities = 1 << line_counter;
+                    for(int bitstring = 1; bitstring < number_possibilities; bitstring++) {
+                            if(test_power_of_two(bitstring) == 1) continue;
+                            if(fork() == 0) {
+                                run_xscale(bitstring, line_counter);
+                                exit(0);
+                            }
+                    }
+                    for(int bitstring = 1; bitstring < number_possibilities; bitstring++) {
+                        if(test_power_of_two(bitstring) == 1) continue;
+                        wait(NULL);
+                    }
                 }
         }
         else {
