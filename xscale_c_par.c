@@ -9,7 +9,7 @@
 #include <sys/wait.h>
 #define MAX_LINES 32
 #define MAX_LINE_SIZE 512
-#define MAX_TEMPLATE_LINES 2048
+#define MAX_TEMPLATE_LINES 4096
 
 char* awk_program = "BEGIN{ PROCINFO[\"sorted_in\"]=\"@ind_num_desc\" \n"
         "FS=\" |/\" \n"
@@ -42,6 +42,7 @@ struct factoradic_number {
 void print_help_message() {
     printf("xscale_p runs xscale on all permutations or combinations of input data sets and produces a sorted table with completeness, r value, and number of unique reflections from each run.\n");
     printf("Usage: xscale_p [-c | -p | -b] XSCALE.INP\n");
+    printf("Note: use no more than 32 input files\n");
     printf("Options:\n");
     printf("    -h, --help:         Print this message\n");
     printf("    -c, --combinations: Run xscale on all combinations of the input files\n");
